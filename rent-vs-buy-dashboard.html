@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rent or buy (Medina's calculator): what you own over time</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#F3F5F8; --surface:#FFFFFF; --ink:#1B2230; --muted:#5B6577; --line:#DDE2EA;
+  --buy:#8C1515; --inv:#0E7C86; --rent:#7A8699; --focus:#2B6CB0; --soft:#EEF1F6;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#12151B; --surface:#1A1F28; --ink:#E8ECF2; --muted:#9AA5B8; --line:#2B3340;
+    --buy:#E4706F; --inv:#3CC4CF; --rent:#8D99AD; --focus:#7DB3F0; --soft:#222936;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Avenir Next","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums;
+}
+h1,h2,h3,p{margin:0}
+.shell{display:grid; grid-template-columns:290px minmax(0,1fr); gap:22px; max-width:1400px; margin:0 auto; padding:22px}
+@media (max-width:760px){ .shell{grid-template-columns:1fr; padding:14px} }
+
+/* Controls */
+.controls{
+  background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px;
+  align-self:start; position:sticky; top:16px; max-height:calc(100vh - 32px); overflow:auto;
+}
+@media (max-width:760px){
+  .controls{position:static; max-height:none; padding:14px}
+  .controls .hint{margin-bottom:0}
+  .chead{cursor:pointer}
+  .controls .toggle{display:inline-flex !important}
+  .controls .hint.tap{display:block !important}
+  .cbody{margin-top:6px}
+  .horizon{padding:10px 12px; gap:10px; flex-wrap:wrap}
+  .horizon label{font-size:14px}
+  .verdict{font-size:18px}
+  .cross{font-size:14px}
+  .chart{height:260px} .chart.short{height:220px}
+  .panel{padding:12px 12px}
+  .panel .sub{font-size:12.5px}
+  .tablewrap{max-height:360px}
+}
+.controls h2{font-size:16px; font-weight:650; margin-bottom:2px}
+.chead{display:flex; justify-content:space-between; align-items:flex-start; gap:10px; list-style:none; cursor:default}
+.chead::-webkit-details-marker{display:none}
+.toggle{display:none; align-items:center; gap:6px; font-size:13px; font-weight:600; padding:7px 12px; border-radius:999px; background:var(--buy); color:#fff; white-space:nowrap}
+.toggle .chev{transition:transform .2s ease}
+.toggle .thide{display:none}
+details[open] .toggle .thide{display:inline}
+details[open] .toggle .tshow{display:none}
+details[open] .toggle .chev{transform:rotate(180deg)}
+.hint.tap{display:none}
+.controls .group{padding:14px 0; border-top:1px solid var(--line)}
+.controls .group:first-of-type{border-top:0; padding-top:8px}
+.controls .hint{font-size:12.5px; color:var(--muted); margin-bottom:10px}
+.s{margin:10px 0 12px}
+.s label{display:block; font-size:13.5px; margin-bottom:4px}
+.s .row{display:flex; align-items:center; gap:8px}
+.s input[type=range]{flex:1; min-width:0; accent-color:var(--buy); height:22px; margin:0}
+.s .n{
+  width:96px; padding:5px 7px; border:1px solid var(--line); border-radius:7px;
+  background:var(--bg); color:var(--ink); font:inherit; font-size:13.5px; text-align:right;
+}
+.s .u{font-size:12.5px; color:var(--muted); width:22px}
+.s input:disabled{opacity:.45}
+.chk{display:flex; gap:10px; align-items:flex-start; margin:10px 0; font-size:14px; cursor:pointer}
+.chk input{margin-top:4px; accent-color:var(--buy)}
+input:focus-visible,button:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+
+/* Main */
+.main{display:flex; flex-direction:column; gap:18px; min-width:0}
+.top{display:flex; flex-direction:column; gap:14px}
+.title{font-size:13.5px; color:var(--muted)}
+.horizon{
+  display:flex; align-items:center; gap:14px; background:var(--surface);
+  border:1px solid var(--line); border-radius:12px; padding:12px 16px;
+}
+.horizon label{font-weight:600; white-space:nowrap}
+.horizon input[type=range]{flex:1; accent-color:var(--buy)}
+.horizon output{min-width:64px; text-align:right; font-weight:650}
+.verdict{font-size:clamp(20px,2.4vw,27px); line-height:1.3; font-weight:600; letter-spacing:-0.01em; max-width:60ch}
+.verdict .b{color:var(--buy)} .verdict .i{color:var(--inv)} .verdict .r{color:var(--rent)}
+.cross{margin-top:8px; font-size:15px; color:var(--muted); font-weight:450}
+
+.scen{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px}
+@media (max-width:760px){
+  .scen{gap:10px}
+  .card{border-radius:12px; min-width:0}
+  .card .head{padding:8px 8px 7px}
+  .card h3{font-size:12.5px; line-height:1.25}
+  .card .sub{font-size:10.5px}
+  .card .body{padding:8px 8px 6px}
+  .card .big{font-size:18px; margin:0 0 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .card .rows div{display:block; padding:6px 0; font-size:11px; line-height:1.3; min-width:0}
+  .card .rows dt{display:block; color:var(--muted)}
+  .card .rows dd{display:block; text-align:left; margin-top:2px; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .card .rows .key dt{color:var(--ink)}
+  .card .rows .key dd{font-size:14px}
+  .card .line{font-size:11px}
+}
+}
+.card{
+  background:var(--surface); border:2px solid var(--c); border-radius:14px; overflow:hidden;
+  padding:0; box-shadow:0 6px 18px rgba(0,0,0,.07);
+  display:flex; flex-direction:column;
+}
+.card .body{flex:1}
+@supports (grid-template-rows:subgrid){
+  .scen{grid-auto-rows:auto 1fr}
+  .card{display:grid; grid-template-rows:subgrid; grid-row:span 2}
+}
+.card.buy{--c:var(--buy); --tint:rgba(140,21,21,.06)}
+.card.inv{--c:var(--inv); --tint:rgba(14,124,134,.07)}
+.card.rent{--c:var(--rent); --tint:rgba(122,134,153,.10)}
+@media (prefers-color-scheme:dark){
+  .card.buy{--tint:rgba(228,112,111,.10)} .card.inv{--tint:rgba(60,196,207,.10)} .card.rent{--tint:rgba(141,153,173,.12)}
+}
+.card .head{background:var(--c); color:#fff; padding:12px 16px 10px}
+.card h3{font-size:15px; font-weight:700; color:#fff}
+.card .sub{font-size:12.5px; color:rgba(255,255,255,.85); margin:0}
+.card .body{padding:12px 16px 14px; background:var(--tint)}
+.card .big{font-size:clamp(20px,2.4vw,32px); font-weight:700; letter-spacing:-0.02em; color:var(--c); margin:0 0 10px}
+.rows{margin:0; padding:0}
+.rows div{display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-top:1px solid var(--line); font-size:14px}
+.rows div:first-child{border-top:0}
+.rows dt{color:var(--muted)} .rows dd{margin:0; font-weight:600; text-align:right}
+.rows .key dt{color:var(--ink); font-weight:600}
+.rows .key dd{color:var(--c); font-size:15px}
+.rows .red dd{color:var(--buy)}
+
+.panel{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px}
+.panel h3{font-size:16px; font-weight:650}
+.panel .sub{font-size:13px; color:var(--muted); margin:2px 0 10px; max-width:75ch}
+.chart{position:relative; height:340px}
+.chart.short{height:280px}
+.two{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px}
+.card .line{font-size:13.5px; color:var(--muted); line-height:1.4}
+.card .line b{color:var(--ink); font-weight:600}
+@media (max-width:1100px){ .two{grid-template-columns:1fr} }
+
+.tablewrap{overflow:auto; max-height:460px; border:1px solid var(--line); border-radius:8px}
+table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:760px}
+th,td{padding:8px 12px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{position:sticky; top:0; background:var(--soft); font-weight:650; z-index:1}
+tr.on td{background:var(--soft); font-weight:650}
+td.cb{color:var(--buy)} td.ci{color:var(--inv)} td.cr{color:var(--rent)}
+.notes{font-size:12.5px; color:var(--muted); max-width:90ch}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important; animation:none!important} }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="controls" aria-label="Assumptions">
+    <details id="details" open>
+    <summary class="chead">
+      <div><h2>Assumptions</h2></div>
+      <span class="toggle" aria-hidden="true"><span class="tshow">Show</span><span class="thide">Hide</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+    </summary>
+    <div class="cbody" id="cbody">
+
+    <section class="group">
+      <div class="s"><label for="price">Home price</label><div class="row"><input id="price" type="range" min="500000" max="4000000" step="25000" value="1500000"><input id="price_n" type="text" inputmode="decimal" class="n" autocomplete="off"></div></div>
+      <div class="s"><label for="down">Down payment</label><div class="row"><input id="down" type="range" min="0" max="60" step="1" value="20"><input id="down_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <div class="s"><label for="rate">Mortgage rate</label><div class="row"><input id="rate" type="range" min="2" max="10" step="0.125" value="6.5"><input id="rate_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <div class="s"><label for="term">Loan term</label><div class="row"><input id="term" type="range" min="10" max="30" step="5" value="30"><input id="term_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">yrs</span></div></div>
+      <div class="s"><label for="app">Home appreciation per year</label><div class="row"><input id="app" type="range" min="-2" max="10" step="0.5" value="4"><input id="app_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+    </section>
+
+    <section class="group">
+      <p class="hint">Other costs of owning</p>
+      <div class="s"><label for="tax">Property tax</label><div class="row"><input id="tax" type="range" min="0" max="3" step="0.05" value="1.2"><input id="tax_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <div class="s"><label for="ins">Insurance per year</label><div class="row"><input id="ins" type="range" min="0" max="10000" step="100" value="2400"><input id="ins_n" type="text" inputmode="decimal" class="n" autocomplete="off"></div></div>
+      <div class="s"><label for="maint">Maintenance, % of value</label><div class="row"><input id="maint" type="range" min="0" max="2" step="0.1" value="0.5"><input id="maint_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <div class="s"><label for="closing">Buying closing costs</label><div class="row"><input id="closing" type="range" min="0" max="5" step="0.25" value="2"><input id="closing_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <div class="s"><label for="selling">Selling costs</label><div class="row"><input id="selling" type="range" min="0" max="8" step="0.25" value="5"><input id="selling_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <label class="chk"><input id="inclOwn" type="checkbox" checked><span>Count property tax, insurance and maintenance in the monthly cost of buying</span></label>
+      <label class="chk"><input id="netSell" type="checkbox"><span>Subtract selling costs from the home value</span></label>
+    </section>
+
+    <section class="group">
+      <p class="hint">Renting</p>
+      <div class="s"><label for="rent">Monthly rent</label><div class="row"><input id="rent" type="range" min="1500" max="10000" step="100" value="4000"><input id="rent_n" type="text" inputmode="decimal" class="n" autocomplete="off"></div></div>
+      <div class="s"><label for="invest">Renter invests per month</label><div class="row"><input id="invest" type="range" min="0" max="10000" step="100" value="4000"><input id="invest_n" type="text" inputmode="decimal" class="n" autocomplete="off"></div></div>
+      <label class="chk"><input id="autoInvest" type="checkbox"><span>Set this automatically to the cost of owning minus rent</span></label>
+      <div class="s"><label for="rentg">Rent increase per year</label><div class="row"><input id="rentg" type="range" min="0" max="8" step="0.5" value="3"><input id="rentg_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <div class="s"><label for="ret">Investment return per year</label><div class="row"><input id="ret" type="range" min="0" max="12" step="0.5" value="7"><input id="ret_n" type="text" inputmode="decimal" class="n" autocomplete="off"><span class="u">%</span></div></div>
+      <div class="s"><label for="start">Starting portfolio</label><div class="row"><input id="start" type="range" min="0" max="1000000" step="10000" value="330000"><input id="start_n" type="text" inputmode="decimal" class="n" autocomplete="off"></div></div>
+      <label class="chk"><input id="investDown" type="checkbox" checked><span>Set this automatically to the down payment plus closing costs</span></label>
+    </section>
+    </div>
+    </details>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <p class="title">Rent or buy (Medina's calculator): what you own over time</p>
+      <div class="horizon">
+        <label for="h">Show results after</label>
+        <input id="h" type="range" min="1" max="30" value="15">
+        <output id="hout" for="h">15 years</output>
+      </div>
+      <div>
+        <h1 class="verdict" id="verdict"></h1>
+        <p class="cross" id="cross"></p>
+      </div>
+    </div>
+
+    <div class="scen" id="cards"></div>
+
+    <section class="panel">
+      <h3>Total assets by scenario</h3>
+      <p class="sub">Buying counts home value minus the loan you still owe. Renting and investing counts the portfolio built from the monthly investment you set on the left. Renting only stays at zero because nothing is invested.</p>
+      <div class="chart"><canvas id="cMain" role="img" aria-label="Line chart of assets over time for the three scenarios"></canvas></div>
+    </section>
+
+    <div class="two">
+      <section class="panel">
+        <h3>Where your home equity comes from</h3>
+        <p class="sub">Your down payment, the loan principal you have paid back, and the rise in home value.</p>
+        <div class="chart short"><canvas id="cComp" role="img" aria-label="Stacked bar chart of home equity sources by year"></canvas></div>
+      </section>
+      <section class="panel">
+        <h3>Principal versus interest each year</h3>
+        <p class="sub">Early payments are mostly interest. Principal, the part you keep, grows every year.</p>
+        <div class="chart short"><canvas id="cFlow" role="img" aria-label="Stacked bar chart of principal and interest paid each year"></canvas></div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <h3>Year by year</h3>
+      <p class="sub">The highlighted row is the year you picked above.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>Year</th><th>Home value</th><th>Loan balance</th><th>Principal paid</th>
+            <th>Buy: total assets</th><th>Rent and invest</th><th>Rent only</th>
+            <th>Rent per month</th><th>Owning cost per month</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <p class="notes">
+      This model leaves out the mortgage interest deduction, taxes on investment gains, mortgage insurance for down payments under 20 percent, and the chance that you move or refinance. Home appreciation and market returns are assumptions, not forecasts. The renter starts with the portfolio you set, or the down payment plus closing costs if you leave that on automatic, and invests the fixed monthly amount you choose, or the owning cost minus rent if you turn on the automatic option. When owning cost is below rent, the buyer invests the difference. This is a planning tool, not financial advice.
+    </p>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => (n<0?'-':'') + '$' + Math.round(Math.abs(n)).toLocaleString('en-US');
+const compact = n => {
+  const a = Math.abs(n), s = n<0?'-':'';
+  if (a >= 1e6) return s + '$' + (a/1e6).toFixed(2).replace(/\.?0+$/,'') + 'M';
+  if (a >= 1e3) return s + '$' + Math.round(a/1e3) + 'K';
+  return s + '$' + Math.round(a);
+};
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const narrow = () => window.innerWidth <= 760;
+const money = n => narrow() ? compact(n) : fmt(n);
+
+//SIM_START
+function simulate(p){
+  const L = p.price*(1-p.downPct), down = p.price*p.downPct, closingCost = p.price*p.closing;
+  const n = p.term*12, r = p.rate/12;
+  const pmt = r===0 ? L/n : L*r/(1-Math.pow(1+r,-n));
+  const mr = Math.pow(1+p.ret,1/12)-1;
+  const sellCost = v => p.netSell ? v*p.selling : 0;
+  let bal = L, port = p.investDown ? down+closingCost : p.start, bPort = 0;
+  const port0 = port;
+  let contribTotal = 0, rentPaid = 0, yPrin = 0, yInt = 0, first = null, cumInt = 0, cumOwn = 0;
+  const years = [{
+    year:0, value:p.price, bal:L, principal:0, appreciation:0, buyNet:down-sellCost(p.price), bExtra:0,
+    port:port0, contribTotal:0, rentPaid:0, rent:p.rent, buyCost:0, yPrin:0, yInt:0, contribMonth:0, cumInt:0, cumOwn:0
+  }];
+  for (let m=1; m<=360; m++){
+    const yi = Math.floor((m-1)/12);
+    let interest = 0, prin = 0, pay = 0;
+    if (m <= n){
+      interest = bal*r; prin = pmt-interest; bal = Math.max(0, bal-prin); pay = pmt;
+    }
+    const value = p.price*Math.pow(1+p.app, m/12);
+    let own = 0;
+    if (p.inclOwn){
+      own = p.price*Math.pow(1.02,yi)*p.taxRate/12 + p.ins*Math.pow(1.03,yi)/12 + p.maint*value/12;
+    }
+    const buyCost = pay + own;
+    const rent = p.rent*Math.pow(1+p.rentG, yi);
+    const contrib = p.autoInvest ? Math.max(0, buyCost-rent) : p.invest;
+    const surplus = Math.max(0, rent-buyCost);
+    port = port*(1+mr) + contrib;
+    bPort = bPort*(1+mr) + surplus;
+    contribTotal += contrib; rentPaid += rent; yPrin += prin; yInt += interest; cumInt += interest; cumOwn += own;
+    if (m===1) first = {pmt, buyCost, rent, contrib};
+    if (m%12===0){
+      years.push({
+        year:m/12, value, bal, principal:L-bal, appreciation:value-p.price,
+        buyNet:value-bal-sellCost(value)+bPort, bExtra:bPort,
+        port, contribTotal, rentPaid, rent, buyCost, yPrin, yInt, contribMonth:contrib, cumInt, cumOwn
+      });
+      yPrin = 0; yInt = 0;
+    }
+  }
+  return {years, L, down, closingCost, port0, first, pmt};
+}
+//SIM_END
+
+const state = {sim:null, h:15, p:null};
+
+function readParams(){
+  const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) ? v : d; };
+  return {
+    price:Math.max(0,num('price',1500000)),
+    downPct:Math.min(1,Math.max(0,num('down',20)/100)),
+    rate:Math.max(0,num('rate',6.5)/100),
+    term:Math.min(30,Math.max(1,Math.round(num('term',30)))),
+    app:num('app',4)/100, taxRate:Math.max(0,num('tax',1.2)/100), ins:Math.max(0,num('ins',2400)),
+    maint:Math.max(0,num('maint',0.5)/100), closing:Math.max(0,num('closing',2)/100),
+    selling:Math.max(0,num('selling',5)/100), rent:Math.max(0,num('rent',4000)),
+    rentG:Math.max(0,num('rentg',3)/100), ret:num('ret',7)/100,
+    invest:Math.max(0,num('invest',4000)), autoInvest:$('autoInvest').checked,
+    start:Math.max(0,num('start',330000)),
+    inclOwn:$('inclOwn').checked, investDown:$('investDown').checked, netSell:$('netSell').checked
+  };
+}
+
+function renderCards(){
+  const {sim, h, p} = state, y = sim.years[h], f = sim.first;
+  const row = (k,v,cls) => `<div${cls?` class="${cls}"`:''}><dt>${k}</dt><dd>${v}</dd></div>`;
+  const growth = y.port - sim.port0 - y.contribTotal;
+
+  let buyRows =
+    row('Home value', money(y.value)) +
+    row('Loan still owed', money(y.bal)) +
+    row('Principal paid back so far', money(y.principal), 'key') +
+    row('Down payment you put in', money(sim.down)) +
+    row('Rise in home value', money(y.appreciation));
+  if (p.netSell) buyRows += row('Selling costs subtracted', money(-y.value*p.selling));
+  if (y.bExtra > 0) buyRows += row('Savings invested after payoff', money(y.bExtra));
+  buyRows += row('Cost of owning, month 1', money(f.buyCost));
+
+  const invRows =
+    row('Starting portfolio', money(sim.port0)) +
+    row('Monthly invested so far', money(y.contribTotal)) +
+    row('Investment growth', money(growth)) +
+    row('Invested per month', money(y.contribMonth), 'key') +
+    row('Rent, month 1', money(f.rent)) +
+    row('Rent plus investing, month 1', money(f.rent + f.contrib));
+
+  const rentRows =
+    row('Invested', '$0') +
+    row('Rent paid so far', money(y.rentPaid), 'key red') +
+    row('Rent, month 1', money(f.rent)) +
+    row('Rent, year ' + h, money(y.rent));
+
+  $('cards').innerHTML = `
+    <article class="card buy">
+      <div class="head"><h3>Buy a home</h3><p class="sub">Home value minus loan</p></div>
+      <div class="body"><p class="big">${money(y.buyNet)}</p><dl class="rows">${buyRows}</dl></div>
+    </article>
+    <article class="card inv">
+      <div class="head"><h3>Rent and invest</h3><p class="sub">Portfolio value</p></div>
+      <div class="body"><p class="big">${money(y.port)}</p><dl class="rows">${invRows}</dl></div>
+    </article>
+    <article class="card rent">
+      <div class="head"><h3>Rent only</h3><p class="sub">Nothing invested</p></div>
+      <div class="body"><p class="big">$0</p><dl class="rows">${rentRows}</dl></div>
+    </article>`;
+}
+
+function renderVerdict(){
+  const {sim, h} = state, y = sim.years[h];
+  const yr = h===1 ? '1 year' : h + ' years';
+  $('verdict').innerHTML =
+    `After ${yr}, buying leaves you with <span class="b">${fmt(y.buyNet)}</span>, renting and investing leaves <span class="i">${fmt(y.port)}</span>, and renting only leaves <span class="r">$0</span> after ${fmt(y.rentPaid)} in rent.`;
+  let cross = null;
+  for (let i=1;i<sim.years.length;i++){ if (sim.years[i].buyNet > sim.years[i].port){ cross = i; break; } }
+  let lead = '';
+  if (cross === null) lead = 'Under these assumptions, renting and investing stays ahead of buying for all 30 years.';
+  else if (cross === 1) lead = 'Under these assumptions, buying is ahead from the first year.';
+  else lead = `Under these assumptions, buying overtakes renting and investing in year ${cross}.`;
+  const gap = y.buyNet - y.port;
+  lead += ` At year ${h}, ${gap>=0?'buying':'renting and investing'} is ahead by ${fmt(Math.abs(gap))}.`;
+  $('cross').textContent = lead;
+}
+
+function renderTable(){
+  const {sim, h} = state;
+  $('rows').innerHTML = sim.years.slice(1).map(y => `
+    <tr class="${y.year===h?'on':''}">
+      <td>${y.year}</td><td>${fmt(y.value)}</td><td>${fmt(y.bal)}</td><td>${fmt(y.principal)}</td>
+      <td class="cb">${fmt(y.buyNet)}</td><td class="ci">${fmt(y.port)}</td><td class="cr">$0</td>
+      <td>${fmt(y.rent)}</td><td>${fmt(y.buyCost)}</td>
+    </tr>`).join('');
+}
+
+let charts = {};
+function buildCharts(){
+  Object.values(charts).forEach(c => c.destroy());
+  Chart.defaults.color = css('--muted');
+  Chart.defaults.borderColor = css('--line');
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  const buy = css('--buy'), inv = css('--inv'), rent = css('--rent');
+  const money = { callback:v => compact(v) };
+  const tipMoney = { callbacks:{ label:c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } };
+  const legend = { position:'bottom', labels:{ usePointStyle:true, boxWidth:8, padding:14 } };
+  const xTitle = { display:true, text:'Years from today' };
+
+  charts.main = new Chart($('cMain'), {
+    type:'line',
+    data:{ labels:[], datasets:[
+      { label:'Buy a home', data:[], borderColor:buy, backgroundColor:buy, borderWidth:2.5, tension:.15,
+        pointRadius:c => c.dataIndex===state.h ? 6 : 0, pointHoverRadius:6 },
+      { label:'Rent and invest', data:[], borderColor:inv, backgroundColor:inv, borderWidth:2.5, tension:.15,
+        pointRadius:c => c.dataIndex===state.h ? 6 : 0, pointHoverRadius:6 },
+      { label:'Rent only, no investing', data:[], borderColor:rent, backgroundColor:rent, borderWidth:2.5, borderDash:[6,5],
+        pointRadius:c => c.dataIndex===state.h ? 6 : 0, pointHoverRadius:6 }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins:{ legend, tooltip:tipMoney },
+      scales:{ y:{ ticks:money, beginAtZero:true }, x:{ title:xTitle } } }
+  });
+
+  charts.comp = new Chart($('cComp'), {
+    type:'bar',
+    data:{ labels:[], datasets:[
+      { label:'Down payment', data:[], backgroundColor:rent, stack:'e' },
+      { label:'Principal paid back', data:[], backgroundColor:buy, stack:'e' },
+      { label:'Rise in home value', data:[], backgroundColor:inv, stack:'e' }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins:{ legend, tooltip:tipMoney },
+      scales:{ x:{ stacked:true, title:xTitle }, y:{ stacked:true, ticks:money } } }
+  });
+
+  charts.flow = new Chart($('cFlow'), {
+    type:'bar',
+    data:{ labels:[], datasets:[
+      { label:'Principal', data:[], backgroundColor:buy, stack:'f' },
+      { label:'Interest', data:[], backgroundColor:rent, stack:'f' }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins:{ legend, tooltip:tipMoney },
+      scales:{ x:{ stacked:true, title:xTitle }, y:{ stacked:true, ticks:money } } }
+  });
+  refreshCharts();
+}
+
+function refreshCharts(){
+  if (!charts.main || !state.sim) return;
+  try {
+  const ys = state.sim.years, d = state.sim.down, after = ys.slice(1);
+  charts.main.data.labels = ys.map(y => y.year);
+  charts.main.data.datasets[0].data = ys.map(y => Math.round(y.buyNet));
+  charts.main.data.datasets[1].data = ys.map(y => Math.round(y.port));
+  charts.main.data.datasets[2].data = ys.map(() => 0);
+  charts.comp.data.labels = after.map(y => y.year);
+  charts.comp.data.datasets[0].data = after.map(() => Math.round(d));
+  charts.comp.data.datasets[1].data = after.map(y => Math.round(y.principal));
+  charts.comp.data.datasets[2].data = after.map(y => Math.round(y.appreciation));
+  charts.flow.data.labels = after.map(y => y.year);
+  charts.flow.data.datasets[0].data = after.map(y => Math.round(y.yPrin));
+  charts.flow.data.datasets[1].data = after.map(y => Math.round(y.yInt));
+  Object.values(charts).forEach(c => c.update('none'));
+  } catch(e) { console.error(e); }
+}
+
+function update(){
+  state.h = parseInt($('h').value, 10);
+  $('hout').textContent = state.h === 1 ? '1 year' : state.h + ' years';
+  $('invest').disabled = $('invest_n').disabled = $('autoInvest').checked;
+  $('start').disabled = $('start_n').disabled = $('investDown').checked;
+  if ($('investDown').checked){
+    const pp = readParams(), auto = Math.round(pp.price*pp.downPct + pp.price*pp.closing);
+    if (auto > parseFloat($('start').max)) $('start').max = auto;
+    $('start').value = auto; $('start_n').value = fmtBox('start', auto);
+  }
+  state.p = readParams();
+  state.sim = simulate(state.p);
+  renderVerdict(); renderCards(); renderTable(); refreshCharts();
+}
+
+const sliders = ['price','down','rate','term','app','tax','ins','maint','closing','selling','rent','invest','start','rentg','ret'];
+const dollar = new Set(['price','ins','rent','invest','start']);
+const fmtBox = (id,v) => dollar.has(id) ? Math.round(v).toLocaleString('en-US') : String(v);
+const parseBox = s => parseFloat(String(s).replace(/[^0-9.\-]/g,''));
+sliders.forEach(id => {
+  const r = $(id), n = $(id+'_n');
+  n.value = fmtBox(id, parseFloat(r.value));
+  r.addEventListener('input', () => { n.value = fmtBox(id, parseFloat(r.value)); update(); });
+  n.addEventListener('input', () => {
+    const v = parseBox(n.value); if (!isFinite(v)) return;
+    if (v < parseFloat(r.min)) r.min = v; if (v > parseFloat(r.max)) r.max = v;
+    r.value = v; update();
+  });
+  n.addEventListener('blur', () => { const v = parseBox(n.value); if (isFinite(v)) n.value = fmtBox(id, v); });
+});
+['inclOwn','netSell','investDown','autoInvest','h'].forEach(id => $(id).addEventListener('input', update));
+const mq = window.matchMedia('(max-width:760px)');
+const setDetails = () => { $('details').open = !mq.matches; };
+setDetails(); mq.addEventListener('change', setDetails);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => buildCharts());
+let lastNarrow = narrow();
+window.addEventListener('resize', () => { if (narrow() !== lastNarrow){ lastNarrow = narrow(); renderCards(); } });
+
+state.sim = simulate(readParams());
+try { buildCharts(); } catch(e) { console.error('Charts unavailable', e); }
+update();
+</script>
+</body>
+</html>
